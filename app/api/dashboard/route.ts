@@ -163,9 +163,9 @@ export async function GET() {
       WHERE
         cl.new_assistant = TRUE
         -- start of last calendar week (Mon 00:00)…
-        AND cl.end_timestamp >= date_trunc('week', current_date) - INTERVAL '1 week'
+        AND cl.end_timestamp >= date_trunc('week', current_date)
         -- …up to the start of this calendar week (Mon 00:00), exclusive
-        AND cl.end_timestamp <  date_trunc('week', current_date)
+        AND cl.end_timestamp <  date_trunc('week', current_date) + INTERVAL '1 week'
         -- exclude any with a matching user whose password_hash = 'temporary password'
         AND NOT EXISTS (
           SELECT 1
@@ -183,9 +183,9 @@ export async function GET() {
       WHERE
         ml.new_chat = TRUE
         -- from start of last calendar week (Mon 00:00)…
-        AND ml.end_timestamp >= date_trunc('week', current_date) - INTERVAL '1 week'
+        AND ml.end_timestamp >= date_trunc('week', current_date)
         -- …up to the start of this calendar week (Mon 00:00), exclusive
-        AND ml.end_timestamp <  date_trunc('week', current_date)
+        AND ml.end_timestamp <  date_trunc('week', current_date) + INTERVAL '1 week'
         -- exclude users whose password_hash = 'temporary password'
         AND NOT EXISTS (
           SELECT 1
@@ -202,9 +202,9 @@ export async function GET() {
         users u
       WHERE
         -- only those created since last week’s Monday 00:00
-        u.created_time >= date_trunc('week', current_date) - INTERVAL '1 week'
+        u.created_time >= date_trunc('week', current_date)
         -- up to this week’s Monday 00:00 (exclusive)
-        AND u.created_time <  date_trunc('week', current_date)
+        AND u.created_time <  date_trunc('week', current_date) + INTERVAL '1 week'
         -- drop any with a matching nextauth_users row where the password is 'temporary password'
         AND NOT EXISTS (
           SELECT 1
@@ -220,13 +220,13 @@ export async function GET() {
       FROM (
         SELECT user_id, end_timestamp
         FROM message_logs
-        WHERE end_timestamp >= date_trunc('week', current_date) - INTERVAL '1 week'
-          AND end_timestamp <  date_trunc('week', current_date)
+        WHERE end_timestamp >= date_trunc('week', current_date)
+          AND end_timestamp <  date_trunc('week', current_date) + INTERVAL '1 week'
         UNION ALL
         SELECT user_id, end_timestamp
         FROM crawl_logs
-        WHERE end_timestamp >= date_trunc('week', current_date) - INTERVAL '1 week'
-          AND end_timestamp <  date_trunc('week', current_date)
+        WHERE end_timestamp >= date_trunc('week', current_date)
+          AND end_timestamp <  date_trunc('week', current_date) + INTERVAL '1 week'
       ) AS logs
       WHERE NOT EXISTS (
         SELECT 1
@@ -243,14 +243,14 @@ export async function GET() {
         SELECT assistant_id, end_timestamp
         FROM message_logs
         WHERE
-          end_timestamp >= date_trunc('week', current_date) - INTERVAL '1 week'
-          AND end_timestamp <  date_trunc('week', current_date)
+          end_timestamp >= date_trunc('week', current_date)
+          AND end_timestamp <  date_trunc('week', current_date) + INTERVAL '1 week'
         UNION ALL
         SELECT assistant_id, end_timestamp
         FROM crawl_logs
         WHERE
-          end_timestamp >= date_trunc('week', current_date) - INTERVAL '1 week'
-          AND end_timestamp <  date_trunc('week', current_date)
+          end_timestamp >= date_trunc('week', current_date)
+          AND end_timestamp <  date_trunc('week', current_date) + INTERVAL '1 week'
       ) AS logs
       JOIN assistants a
         ON a.assistant_id = logs.assistant_id
@@ -271,8 +271,8 @@ export async function GET() {
         JOIN assistants a
           ON a.assistant_id = ml.assistant_id
       WHERE
-        ml.end_timestamp >= date_trunc('week', current_date) - INTERVAL '1 week'
-        AND ml.end_timestamp <  date_trunc('week', current_date)
+        ml.end_timestamp >= date_trunc('week', current_date)
+        AND ml.end_timestamp <  date_trunc('week', current_date) + INTERVAL '1 week'
         AND NOT EXISTS (
           SELECT 1
           FROM nextauth_users nu
