@@ -163,9 +163,9 @@ export async function GET() {
       WHERE
         cl.new_assistant = TRUE
         -- start of last calendar week (Mon 00:00)…
-        AND cl.end_timestamp >= date_trunc('week', current_date) - INTERVAL '1 week'
+        AND cl.end_timestamp >= date_trunc('week', timezone('UTC', now()))
         -- …up to the start of this calendar week (Mon 00:00), exclusive
-        AND cl.end_timestamp <  date_trunc('week', current_date)
+        AND cl.end_timestamp <  date_trunc('week', timezone('UTC', now())) + INTERVAL '1 week'
         -- exclude any with a matching user whose password_hash = 'temporary password'
         AND NOT EXISTS (
           SELECT 1
@@ -183,9 +183,9 @@ export async function GET() {
       WHERE
         ml.new_chat = TRUE
         -- from start of last calendar week (Mon 00:00)…
-        AND ml.end_timestamp >= date_trunc('week', current_date) - INTERVAL '1 week'
+        AND ml.end_timestamp >= date_trunc('week', timezone('UTC', now()))
         -- …up to the start of this calendar week (Mon 00:00), exclusive
-        AND ml.end_timestamp <  date_trunc('week', current_date)
+        AND ml.end_timestamp <  date_trunc('week', timezone('UTC', now())) + INTERVAL '1 week'
         -- exclude users whose password_hash = 'temporary password'
         AND NOT EXISTS (
           SELECT 1
@@ -201,10 +201,10 @@ export async function GET() {
       FROM
         users u
       WHERE
-        -- only those created since last week’s Monday 00:00
-        u.created_time >= date_trunc('week', current_date) - INTERVAL '1 week'
-        -- up to this week’s Monday 00:00 (exclusive)
-        AND u.created_time <  date_trunc('week', current_date)
+        -- only those created since last week's Monday 00:00
+        u.created_time >= date_trunc('week', timezone('UTC', now()))
+        -- up to this week's Monday 00:00 (exclusive)
+        AND u.created_time <  date_trunc('week', timezone('UTC', now())) + INTERVAL '1 week'
         -- drop any with a matching nextauth_users row where the password is 'temporary password'
         AND NOT EXISTS (
           SELECT 1
@@ -220,13 +220,13 @@ export async function GET() {
       FROM (
         SELECT user_id, end_timestamp
         FROM message_logs
-        WHERE end_timestamp >= date_trunc('week', current_date) - INTERVAL '1 week'
-          AND end_timestamp <  date_trunc('week', current_date)
+        WHERE end_timestamp >= date_trunc('week', timezone('UTC', now()))
+          AND end_timestamp <  date_trunc('week', timezone('UTC', now())) + INTERVAL '1 week'
         UNION ALL
         SELECT user_id, end_timestamp
         FROM crawl_logs
-        WHERE end_timestamp >= date_trunc('week', current_date) - INTERVAL '1 week'
-          AND end_timestamp <  date_trunc('week', current_date)
+        WHERE end_timestamp >= date_trunc('week', timezone('UTC', now()))
+          AND end_timestamp <  date_trunc('week', timezone('UTC', now())) + INTERVAL '1 week'
       ) AS logs
       WHERE NOT EXISTS (
         SELECT 1
@@ -243,14 +243,14 @@ export async function GET() {
         SELECT assistant_id, end_timestamp
         FROM message_logs
         WHERE
-          end_timestamp >= date_trunc('week', current_date) - INTERVAL '1 week'
-          AND end_timestamp <  date_trunc('week', current_date)
+          end_timestamp >= date_trunc('week', timezone('UTC', now()))
+          AND end_timestamp <  date_trunc('week', timezone('UTC', now())) + INTERVAL '1 week'
         UNION ALL
         SELECT assistant_id, end_timestamp
         FROM crawl_logs
         WHERE
-          end_timestamp >= date_trunc('week', current_date) - INTERVAL '1 week'
-          AND end_timestamp <  date_trunc('week', current_date)
+          end_timestamp >= date_trunc('week', timezone('UTC', now()))
+          AND end_timestamp <  date_trunc('week', timezone('UTC', now())) + INTERVAL '1 week'
       ) AS logs
       JOIN assistants a
         ON a.assistant_id = logs.assistant_id
@@ -271,8 +271,8 @@ export async function GET() {
         JOIN assistants a
           ON a.assistant_id = ml.assistant_id
       WHERE
-        ml.end_timestamp >= date_trunc('week', current_date) - INTERVAL '1 week'
-        AND ml.end_timestamp <  date_trunc('week', current_date)
+        ml.end_timestamp >= date_trunc('week', timezone('UTC', now()))
+        AND ml.end_timestamp <  date_trunc('week', timezone('UTC', now())) + INTERVAL '1 week'
         AND NOT EXISTS (
           SELECT 1
           FROM nextauth_users nu
@@ -310,6 +310,8 @@ export async function GET() {
       (SELECT * FROM total_sources)      AS total_sources;
   `;
 
+  console.log(await sql`SELECT current_date`);
+
   const metricsData = {
     metrics: {
       totalUsers: Number(metrics.total_users), //done
@@ -330,38 +332,36 @@ export async function GET() {
   }
 
   const [timingMetrics] = await sql`
-    WITH chat_times AS (
-      SELECT 
-        ROUND(EXTRACT(EPOCH FROM (end_timestamp - start_timestamp)) * 1000) as duration_ms
-      FROM message_logs
-      WHERE end_timestamp >= date_trunc('week', NOW())
-      AND end_timestamp < date_trunc('week', NOW() + interval '1 week')
-    ),
-    crawl_times AS (
-      SELECT 
-        ROUND(EXTRACT(EPOCH FROM (end_timestamp - start_timestamp)) * 1000) as duration_ms
-      FROM crawl_logs
-      WHERE end_timestamp >= date_trunc('week', NOW())
-      AND end_timestamp < date_trunc('week', NOW() + interval '1 week')
-      AND new_assistant = true
-    ),
-    web_search AS (
-      SELECT
-        ROUND(
-          100.0 * COUNT(*) FILTER (WHERE web_search)
-          / NULLIF(COUNT(*), 0)
-        , 2) AS percent_web_search
-      FROM
-        message_logs
-    )
+  WITH chat_times AS (
     SELECT 
-      ROUND(COALESCE(AVG(ct.duration_ms), 0)) as "avgChatTime",
-      ROUND(COALESCE(AVG(crt.duration_ms), 0)) as "weeklyAvgCrawlTime",
-      MAX(ws.percent_web_search) as "percentWebSearches"
-    FROM chat_times ct, crawl_times crt, web_search ws`;
+      ROUND(AVG(EXTRACT(EPOCH FROM (end_timestamp - start_timestamp)) * 1000)) AS avg_chat_time_ms
+    FROM message_logs
+  ),
+  crawl_times AS (
+    SELECT 
+      ROUND(AVG(EXTRACT(EPOCH FROM (end_timestamp - start_timestamp)) * 1000)) AS avg_crawl_time_ms
+    FROM crawl_logs
+    WHERE new_assistant = TRUE
+  ),
+  web_search AS (
+    SELECT
+      ROUND(
+        100.0 * COUNT(*) FILTER (WHERE web_search)
+        / NULLIF(COUNT(*), 0)
+      , 2) AS percent_web_search
+    FROM message_logs
+  )
+  SELECT 
+    COALESCE(ct.avg_chat_time_ms, 0) AS "avgChatTime",
+    COALESCE(cr.avg_crawl_time_ms, 0) AS "avgCrawlTime",
+    COALESCE(ws.percent_web_search, 0) AS "percentWebSearches"
+  FROM chat_times ct
+  CROSS JOIN crawl_times cr
+  CROSS JOIN web_search ws
+`;
 
   const technicalOperations = {
-    weeklyAvgCrawlTime: Number(timingMetrics.weeklyAvgCrawlTime),
+    weeklyAvgCrawlTime: Number(timingMetrics.avgCrawlTime),
     avgChatTime: Number(timingMetrics.avgChatTime),
     percentWebSearches: Number(timingMetrics.percentWebSearches)
   };
@@ -404,8 +404,6 @@ export async function GET() {
     LEFT JOIN new_users_by_week nu ON w.week_start = nu.week_start
     GROUP BY w.week_start, nu.new_users
     ORDER BY w.week_start DESC`;
-
-  console.log(weeklyData);
 
   // Transform weeklyData into userData format, limiting to 7 weeks
   const userData = {
